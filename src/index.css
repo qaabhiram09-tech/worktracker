@@ -24,7 +24,7 @@ button:focus-visible {
 
 /* ── Interactive surfaces ── */
 .wt-card { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
-.wt-card:hover { transform: translateY(-2px); border-color: #2d4060 !important; box-shadow: 0 10px 24px -10px #000000a0; }
+.wt-card:hover { transform: translateY(-2px); border-top-color: #2d4060 !important; border-right-color: #2d4060 !important; border-bottom-color: #2d4060 !important; box-shadow: 0 10px 24px -10px #000000a0; }
 
 .wt-stat-item { transition: transform .15s ease, border-color .15s ease; }
 .wt-stat-item:hover { transform: translateY(-1px); border-color: #2d4060 !important; }

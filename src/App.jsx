@@ -148,6 +148,52 @@ export default function App() {
     }));
   };
 
+  const updatePaymentAmount = async (projId, key, rawAmount) => {
+    const proj = projects.find(p => p.id === projId);
+    if (!proj) return;
+    const price = proj.price;
+
+    const target = proj.payments.find(x => x.key === key);
+    if (!target || target.paid) return;
+
+    const paidOthers   = proj.payments.filter(x => x.key !== key && x.paid);
+    const unpaidOthers = proj.payments.filter(x => x.key !== key && !x.paid);
+    const paidSum = paidOthers.reduce((s, x) => s + x.amount, 0);
+    const room = Math.max(0, price - paidSum);
+
+    let newAmount = Math.round(Number(rawAmount));
+    if (!Number.isFinite(newAmount) || newAmount < 0) newAmount = 0;
+    if (newAmount > room) newAmount = room;
+
+    const remaining = room - newAmount;
+
+    let redistributed = [];
+    if (unpaidOthers.length > 0) {
+      const currentSum = unpaidOthers.reduce((s, x) => s + x.amount, 0);
+      redistributed = unpaidOthers.map((x, i) => {
+        if (i === unpaidOthers.length - 1) return x;
+        const share = currentSum > 0 ? remaining * (x.amount / currentSum) : remaining / unpaidOthers.length;
+        return { ...x, amount: Math.round(share) };
+      });
+      const usedSoFar = redistributed.slice(0, -1).reduce((s, x) => s + x.amount, 0);
+      const last = unpaidOthers[unpaidOthers.length - 1];
+      redistributed[redistributed.length - 1] = { ...last, amount: remaining - usedSoFar };
+    }
+
+    const updatedPayments = proj.payments.map(x => {
+      if (x.key === key) return { ...x, amount: newAmount };
+      const r = redistributed.find(o => o.key === x.key);
+      return r ? { ...x, amount: r.amount } : x;
+    }).map(x => ({ ...x, pct: price ? Math.round((x.amount / price) * 1000) / 10 : 0 }));
+
+    const results = await Promise.all(
+      updatedPayments.map(pm => supabase.from("project_payments").update({ amount: pm.amount, pct: pm.pct }).eq("id", pm.id))
+    );
+    if (results.some(r => r.error)) { alert("Failed to update payment amount."); return; }
+
+    setProjects(projects.map(p => p.id === projId ? { ...p, payments: updatedPayments } : p));
+  };
+
   const setStatus = async (projId, status) => {
     const { error } = await supabase.from("projects").update({ status }).eq("id", projId);
     if (error) { alert("Failed to update status: " + error.message); return; }
@@ -275,6 +321,7 @@ export default function App() {
               project={sel}
               onTogglePhase={(i) => togglePhase(sel.id, i)}
               onTogglePayment={(k) => togglePayment(sel.id, k)}
+              onUpdatePaymentAmount={(k, amt) => updatePaymentAmount(sel.id, k, amt)}
               onSetStatus={(s) => setStatus(sel.id, s)}
               onDelete={() => deleteProject(sel.id)}
               onSaveNotes={(n) => saveNotes(sel.id, n)}
@@ -311,7 +358,9 @@ function ProjectCard({ project: p, selected, onClick }) {
   return (
     <div className="wt-card" onClick={onClick} style={{
       background:    selected ? "#1a2744" : "#141e2e",
-      border:        `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
+      borderTop:     `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
+      borderRight:   `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
+      borderBottom:  `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
       borderLeft:    `4px solid ${selected ? "#6366f1" : cfg.color}`,
       borderRadius:  14, padding: 18, cursor: "pointer",
       boxShadow:     selected ? "0 0 0 2px #6366f133" : "0 1px 0 #00000030",
@@ -364,12 +413,21 @@ function Stat({ label, val, color, bg }) {
 
 // ─── Project Detail ───────────────────────────────────────────────────────────
 
-function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus, onDelete, onSaveNotes, onClose }) {
+function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onUpdatePaymentAmount, onSetStatus, onDelete, onSaveNotes, onClose }) {
   const [notes,        setNotes]        = useState(p.notes || "");
   const [notesChanged, setNotesChanged] = useState(false);
+  const [editingKey,   setEditingKey]   = useState(null);
+  const [editValue,    setEditValue]    = useState("");
 
   // Sync if project changes externally
   useEffect(() => { setNotes(p.notes || ""); setNotesChanged(false); }, [p.id, p.notes]);
+  useEffect(() => { setEditingKey(null); }, [p.id]);
+
+  const startEdit = (pm) => { setEditingKey(pm.key); setEditValue(String(pm.amount)); };
+  const commitEdit = () => {
+    if (editValue.trim() !== "") onUpdatePaymentAmount(editingKey, Number(editValue));
+    setEditingKey(null);
+  };
 
   const cfg       = PROJECT_CONFIGS[p.type];
   const collected = p.payments.filter(pm => pm.paid).reduce((s, pm) => s + pm.amount, 0);
@@ -467,9 +525,31 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus
               <div style={{ fontWeight: 600, fontSize: 14 }}>{pm.label}</div>
               <div style={{ fontSize: 11, color: "#64748b" }}>{pm.pct}% of project{pm.paidDate ? ` · Received ${fmtD(pm.paidDate)}` : ""}</div>
             </div>
-            <div style={{ textAlign: "right", marginRight: 8 }}>
-              <div style={{ fontSize: 20, fontWeight: 800, color: pm.paid ? "#10b981" : "#e2e8f0" }}>{fmt(pm.amount)}</div>
-            </div>
+
+            {editingKey === pm.key ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginRight: 4 }}>
+                <span style={{ fontSize: 13, color: "#64748b" }}>₹</span>
+                <input
+                  type="number" min={0} max={p.price} autoFocus
+                  value={editValue}
+                  onChange={e => setEditValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditingKey(null); }}
+                  style={{ width: 92, background: "#0f1623", border: "1px solid #6366f1", borderRadius: 7, padding: "6px 9px", color: "#e2e8f0", fontSize: 14, textAlign: "right" }}
+                />
+                <button className="wt-btn-ghost" onClick={() => setEditingKey(null)} style={{ background: "#1e2d42", border: "none", color: "#94a3b8", width: 28, height: 28, borderRadius: 7, cursor: "pointer", fontSize: 14 }}>×</button>
+                <button className="wt-btn-primary" onClick={commitEdit} style={{ background: "#6366f1", border: "none", color: "#fff", width: 28, height: 28, borderRadius: 7, cursor: "pointer", fontSize: 13 }}>✓</button>
+              </div>
+            ) : (
+              <div
+                onClick={() => !pm.paid && startEdit(pm)}
+                title={pm.paid ? "" : `Edit amount (max ${fmt(p.price)})`}
+                style={{ display: "flex", alignItems: "center", gap: 6, marginRight: 8, cursor: pm.paid ? "default" : "pointer" }}
+              >
+                <div style={{ fontSize: 20, fontWeight: 800, color: pm.paid ? "#10b981" : "#e2e8f0" }}>{fmt(pm.amount)}</div>
+                {!pm.paid && <span style={{ fontSize: 12, color: "#475569" }}>✎</span>}
+              </div>
+            )}
+
             <button className="wt-pill" onClick={() => onTogglePayment(pm.key)} style={{
               padding: "7px 15px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
               background: pm.paid ? "#064e3b" : "#6366f122",
