@@ -1,7 +1,61 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #080d17; color: #f1f5f9; font-family: 'Inter', system-ui, sans-serif; }
+body {
+  background: radial-gradient(circle at 20% -10%, #161f33 0%, #080d17 50%) fixed;
+  color: #f1f5f9; font-family: 'Inter', system-ui, sans-serif;
+}
 input, select, textarea, button { font-family: inherit; }
+button { transition: background-color .15s ease, border-color .15s ease, filter .15s ease, transform .1s ease, box-shadow .15s ease; }
+input, select, textarea { transition: border-color .15s ease, box-shadow .15s ease; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #0f1623; }
 ::-webkit-scrollbar-thumb { background: #1e2d42; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #2d4060; }
+
+/* ── Focus states (accessibility + polish) ── */
+input:focus, select:focus, textarea:focus {
+  border-color: #6366f1 !important;
+  box-shadow: 0 0 0 3px #6366f12e;
+  outline: none;
+}
+button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px #6366f155;
+}
+
+/* ── Interactive surfaces ── */
+.wt-card { transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease; }
+.wt-card:hover { transform: translateY(-2px); border-color: #2d4060 !important; box-shadow: 0 10px 24px -10px #000000a0; }
+
+.wt-stat-item { transition: transform .15s ease, border-color .15s ease; }
+.wt-stat-item:hover { transform: translateY(-1px); border-color: #2d4060 !important; }
+
+.wt-pill { transition: filter .15s ease, background-color .15s ease; }
+.wt-pill:hover { filter: brightness(1.15); }
+
+.wt-btn-primary:hover { filter: brightness(1.12); box-shadow: 0 4px 14px -4px #6366f188; }
+.wt-btn-primary:active { transform: scale(.97); }
+
+.wt-btn-ghost:hover { background: #1a2536 !important; color: #cbd5e1 !important; }
+.wt-btn-danger:hover { background: #7f1d1d44 !important; }
+
+.wt-phase-row:hover, .wt-pay-row:hover { border-color: #334155 !important; }
+
+/* ── Modal motion ── */
+.wt-backdrop { animation: wt-fade-in .15s ease; backdrop-filter: blur(3px); }
+.wt-modal-card { animation: wt-modal-in .18s cubic-bezier(.16,1,.3,1); }
+@keyframes wt-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes wt-modal-in { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+@media (max-width: 640px) {
+  .wt-hide-mobile { display: none !important; }
+  .wt-header { padding: 0 12px !important; height: 52px !important; gap: 6px !important; }
+  .wt-title { font-size: 15px !important; }
+  .wt-search { width: 88px !important; font-size: 12px !important; padding: 6px 8px !important; }
+  .wt-stats { padding: 10px 14px !important; flex-wrap: wrap !important; overflow-x: visible !important; }
+  .wt-stat-item { flex: 1 1 45% !important; min-width: 0 !important; }
+  .wt-mainlayout { height: auto !important; }
+  .wt-list-panel { overflow-y: visible !important; }
+  .wt-list-cards { overflow-y: visible !important; padding: 12px !important; }
+  .wt-detail { overflow-y: visible !important; padding: 14px !important; }
+  .wt-addform-grid { grid-template-columns: 1fr !important; }
+}

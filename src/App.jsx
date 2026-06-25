@@ -12,7 +12,10 @@ const PROJECT_CONFIGS = {
   shopify:       { label: "Shopify",                         price: 10000, color: "#0891b2", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
   adv_ecommerce: { label: "Advanced Ecommerce (User Accts)", price: 12000, color: "#0284c7", totalDays: 8, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:3},{name:"Bug Fix & Live",days:1}] },
   html:          { label: "HTML Website",                    price: 5000,  color: "#059669", totalDays: 4, phases: [{name:"Design",days:1},{name:"Corrections",days:1},{name:"Development",days:1},{name:"Bug Fix & Live",days:1}] },
+  custom:        { label: "Custom Project Type",              price: 5000,  color: "#ec4899", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
 };
+
+const typeLabel = (p) => (p.type === "custom" && p.customLabel) ? p.customLabel : PROJECT_CONFIGS[p.type]?.label;
 
 const MILESTONE_DEFS = [
   { key: "advance", label: "Advance",      pct: 20, icon: "🔑" },
@@ -30,6 +33,7 @@ const rowToProject = (row) => ({
   id:         row.id,
   clientName: row.client_name,
   type:       row.type,
+  customLabel: row.custom_label || "",
   price:      Number(row.price),
   startDate:  row.start_date,
   notes:      row.notes || "",
@@ -52,7 +56,14 @@ export default function App() {
   const [tab,      setTab]      = useState("all");
   const [showAdd,  setShowAdd]  = useState(false);
   const [search,   setSearch]   = useState("");
-  const [form, setForm] = useState({ clientName: "", type: "cms", price: 5000, startDate: tod(), notes: "" });
+  const [form, setForm] = useState({ clientName: "", type: "cms", customLabel: "", price: 5000, startDate: tod(), notes: "" });
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -77,6 +88,7 @@ export default function App() {
       .insert({
         client_name: form.clientName.trim() || "Unnamed Client",
         type: form.type,
+        custom_label: form.type === "custom" ? (form.customLabel.trim() || "Custom Project") : null,
         price,
         start_date: form.startDate,
         notes: form.notes,
@@ -99,7 +111,7 @@ export default function App() {
     setProjects(prev => [p, ...prev]);
     setShowAdd(false);
     setSelected(p.id);
-    setForm({ clientName: "", type: "cms", price: 5000, startDate: tod(), notes: "" });
+    setForm({ clientName: "", type: "cms", customLabel: "", price: 5000, startDate: tod(), notes: "" });
   };
 
   const togglePhase = async (projId, idx) => {
@@ -161,7 +173,7 @@ export default function App() {
   const sel      = projects.find(p => p.id === selected) || null;
   const filtered = projects.filter(p =>
     (tab === "all" || p.status === tab) &&
-    (search === "" || p.clientName.toLowerCase().includes(search.toLowerCase()) || PROJECT_CONFIGS[p.type].label.toLowerCase().includes(search.toLowerCase()))
+    (search === "" || p.clientName.toLowerCase().includes(search.toLowerCase()) || typeLabel(p).toLowerCase().includes(search.toLowerCase()))
   );
 
   const totalCollected = projects.reduce((s, p) => s + p.payments.filter(pm => pm.paid).reduce((ss, pm) => ss + pm.amount, 0), 0);
@@ -174,37 +186,38 @@ export default function App() {
 
   if (loading) {
     return (
-      <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: "#080d17", minHeight: "100vh", color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+      <div style={{ fontFamily: "'Inter',system-ui,sans-serif", minHeight: "100vh", color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
         Loading projects…
       </div>
     );
   }
 
   return (
-    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: "#080d17", minHeight: "100vh", color: "#f1f5f9" }}>
+    <div style={{ fontFamily: "'Inter',system-ui,sans-serif", minHeight: "100vh", color: "#f1f5f9" }}>
 
       {/* ── Header ── */}
-      <header style={{ background: "#0f1623", borderBottom: "1px solid #1e2d42", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60, position: "sticky", top: 0, zIndex: 50 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 32, height: 32, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>⚡</div>
-          <span style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.3px" }}>WorkTracker</span>
-          <span style={{ color: "#475569", fontSize: 13 }}>/ Freelance CRM</span>
+      <header className="wt-header" style={{ background: "#0f1623", borderBottom: "1px solid #1e2d42", padding: "0 28px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64, position: "sticky", top: 0, zIndex: 50, boxShadow: "0 1px 0 #00000040" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          <div style={{ width: 34, height: 34, flexShrink: 0, background: "linear-gradient(135deg,#6366f1,#8b5cf6)", borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, boxShadow: "0 4px 12px -4px #6366f199" }}>⚡</div>
+          <span className="wt-title" style={{ fontWeight: 700, fontSize: 17, letterSpacing: "-0.3px", whiteSpace: "nowrap" }}>WorkTracker</span>
+          <span className="wt-hide-mobile" style={{ color: "#475569", fontSize: 13, whiteSpace: "nowrap" }}>/ Freelance CRM</span>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <input
+            className="wt-search"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search projects…"
-            style={{ background: "#141e2e", border: "1px solid #1e2d42", borderRadius: 8, padding: "6px 12px", color: "#e2e8f0", fontSize: 13, outline: "none", width: 200 }}
+            style={{ background: "#141e2e", border: "1px solid #1e2d42", borderRadius: 9, padding: "8px 13px", color: "#e2e8f0", fontSize: 13, width: 200 }}
           />
-          <button onClick={() => setShowAdd(true)} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            ＋ New Project
+          <button className="wt-btn-primary" onClick={() => setShowAdd(true)} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 9, padding: "9px 18px", fontWeight: 600, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+            ＋ New<span className="wt-hide-mobile"> Project</span>
           </button>
         </div>
       </header>
 
       {/* ── Stats Bar ── */}
-      <div style={{ background: "#0f1623", borderBottom: "1px solid #1e2d42", padding: "12px 24px", display: "flex", gap: 8, overflowX: "auto" }}>
+      <div className="wt-stats" style={{ background: "#0f1623", borderBottom: "1px solid #1e2d42", padding: "16px 28px", display: "flex", gap: 10, overflowX: "auto" }}>
         {[
           { label: "Total Projects", val: projects.length,    icon: "📁", color: "#6366f1" },
           { label: "Active",         val: activeCount,        icon: "🔄", color: "#3b82f6" },
@@ -213,49 +226,51 @@ export default function App() {
           { label: "Collected",      val: fmt(totalCollected),icon: "💰", color: "#10b981" },
           { label: "Pending",        val: fmt(totalPending),  icon: "⏳", color: "#f59e0b" },
         ].map(s => (
-          <div key={s.label} style={{ flex: "1 1 130px", minWidth: 110, background: "#141e2e", borderRadius: 10, padding: "10px 14px", border: "1px solid #1e2d42" }}>
-            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.icon} {s.label}</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.val}</div>
+          <div key={s.label} className="wt-stat-item" style={{ flex: "1 1 140px", minWidth: 110, background: "#141e2e", borderRadius: 12, padding: "12px 16px", border: "1px solid #1e2d42" }}>
+            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.icon} {s.label}</div>
+            <div style={{ fontSize: 19, fontWeight: 700, color: s.color }}>{s.val}</div>
           </div>
         ))}
       </div>
 
       {/* ── Main Layout ── */}
-      <div style={{ display: "flex", height: "calc(100vh - 117px)" }}>
+      <div className="wt-mainlayout" style={{ display: "flex", height: "calc(100vh - 129px)" }}>
 
         {/* ── Left: Project List ── */}
-        <div style={{ width: sel ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", borderRight: sel ? "1px solid #1e2d42" : "none", transition: "width 0.2s" }}>
-          {/* Tabs */}
-          <div style={{ display: "flex", gap: 4, padding: "12px 16px", background: "#0f1623", borderBottom: "1px solid #1e2d42" }}>
-            {[["all","All"],["active","Active"],["completed","Done"],["on_hold","Hold"]].map(([k, l]) => (
-              <button key={k} onClick={() => setTab(k)} style={{
-                padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
-                background: tab === k ? "#6366f1" : "#141e2e",
-                color:      tab === k ? "#fff"    : "#64748b",
-              }}>
-                {l} ({k === "all" ? projects.length : k === "active" ? activeCount : k === "completed" ? completedCount : holdCount})
-              </button>
-            ))}
-          </div>
+        {(!isMobile || !sel) && (
+          <div className="wt-list-panel" style={{ width: sel && !isMobile ? 360 : "100%", flexShrink: 0, display: "flex", flexDirection: "column", borderRight: sel && !isMobile ? "1px solid #1e2d42" : "none", transition: "width 0.2s" }}>
+            {/* Tabs */}
+            <div style={{ display: "flex", gap: 6, padding: "14px 18px", background: "#0f1623", borderBottom: "1px solid #1e2d42" }}>
+              {[["all","All"],["active","Active"],["completed","Done"],["on_hold","Hold"]].map(([k, l]) => (
+                <button key={k} className="wt-pill" onClick={() => setTab(k)} style={{
+                  padding: "6px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                  background: tab === k ? "#6366f1" : "#141e2e",
+                  color:      tab === k ? "#fff"    : "#64748b",
+                }}>
+                  {l} ({k === "all" ? projects.length : k === "active" ? activeCount : k === "completed" ? completedCount : holdCount})
+                </button>
+              ))}
+            </div>
 
-          {/* Cards */}
-          <div style={{ flex: 1, overflowY: "auto", padding: sel ? "12px" : "16px", display: "grid", gridTemplateColumns: sel ? "1fr" : "repeat(auto-fill,minmax(300px,1fr))", gap: 10, alignContent: "start" }}>
-            {filtered.length === 0 && (
-              <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 60, color: "#475569" }}>
-                <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>
-                <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 6 }}>No projects yet</div>
-                <div style={{ fontSize: 13 }}>Click <strong style={{ color: "#818cf8" }}>+ New Project</strong> to get started</div>
-              </div>
-            )}
-            {filtered.map(p => (
-              <ProjectCard key={p.id} project={p} selected={selected === p.id} onClick={() => setSelected(selected === p.id ? null : p.id)} />
-            ))}
+            {/* Cards */}
+            <div className="wt-list-cards" style={{ flex: 1, overflowY: "auto", padding: sel && !isMobile ? "14px" : "20px", display: "grid", gridTemplateColumns: sel && !isMobile ? "1fr" : "repeat(auto-fill,minmax(280px,1fr))", gap: 14, alignContent: "start" }}>
+              {filtered.length === 0 && (
+                <div style={{ gridColumn: "1/-1", textAlign: "center", padding: 60, color: "#475569" }}>
+                  <div style={{ fontSize: 40, marginBottom: 10 }}>📋</div>
+                  <div style={{ fontWeight: 600, fontSize: 16, marginBottom: 6 }}>No projects yet</div>
+                  <div style={{ fontSize: 13 }}>Click <strong style={{ color: "#818cf8" }}>+ New Project</strong> to get started</div>
+                </div>
+              )}
+              {filtered.map(p => (
+                <ProjectCard key={p.id} project={p} selected={selected === p.id} onClick={() => setSelected(selected === p.id ? null : p.id)} />
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* ── Right: Detail Panel ── */}
         {sel && (
-          <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+          <div className="wt-detail" style={{ flex: 1, overflowY: "auto", padding: 24 }}>
             <ProjectDetail
               project={sel}
               onTogglePhase={(i) => togglePhase(sel.id, i)}
@@ -294,25 +309,26 @@ function ProjectCard({ project: p, selected, onClick }) {
   }[p.status];
 
   return (
-    <div onClick={onClick} style={{
+    <div className="wt-card" onClick={onClick} style={{
       background:    selected ? "#1a2744" : "#141e2e",
       border:        `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
-      borderRadius:  12, padding: 16, cursor: "pointer", transition: "all 0.15s",
-      boxShadow:     selected ? "0 0 0 2px #6366f133" : "none",
+      borderLeft:    `4px solid ${selected ? "#6366f1" : cfg.color}`,
+      borderRadius:  14, padding: 18, cursor: "pointer",
+      boxShadow:     selected ? "0 0 0 2px #6366f133" : "0 1px 0 #00000030",
     }}>
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{p.clientName}</div>
-          <div style={{ display: "inline-block", fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: cfg.color + "22", color: cfg.color }}>{cfg.label}</div>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{p.clientName}</div>
+          <div style={{ display: "inline-block", fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: cfg.color + "22", color: cfg.color }}>{typeLabel(p)}</div>
         </div>
-        <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6, background: statusCfg.bg, color: statusCfg.text }}>{statusCfg.label}</span>
+        <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 9px", borderRadius: 6, background: statusCfg.bg, color: statusCfg.text, whiteSpace: "nowrap" }}>{statusCfg.label}</span>
       </div>
 
-      <div style={{ fontSize: 20, fontWeight: 800, color: "#e2e8f0", marginBottom: 10 }}>{fmt(p.price)}</div>
+      <div style={{ fontSize: 21, fontWeight: 800, color: "#e2e8f0", marginBottom: 12 }}>{fmt(p.price)}</div>
 
       {/* Phase build meter */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#64748b", marginBottom: 5 }}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#64748b", marginBottom: 6 }}>
           <span>Build Progress</span>
           <span style={{ color: phasePct === 100 ? "#10b981" : "#94a3b8" }}>{completedCount}/{p.phases.length} phases · {phasePct}%</span>
         </div>
@@ -328,7 +344,7 @@ function ProjectCard({ project: p, selected, onClick }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", gap: 8 }}>
         <Stat label="Collected" val={fmt(collected)} color="#10b981" bg="#06403022" />
         <Stat label="Pending"   val={fmt(pending)}   color="#f59e0b" bg="#451a0322" />
         <Stat label="Timeline"  val={`${cfg.totalDays}d`} color="#818cf8" bg="#1e1a4222" />
@@ -339,7 +355,7 @@ function ProjectCard({ project: p, selected, onClick }) {
 
 function Stat({ label, val, color, bg }) {
   return (
-    <div style={{ flex: 1, background: bg, borderRadius: 6, padding: "5px 8px" }}>
+    <div style={{ flex: 1, background: bg, borderRadius: 8, padding: "7px 9px" }}>
       <div style={{ fontSize: 10, color: "#64748b" }}>{label}</div>
       <div style={{ fontSize: 13, fontWeight: 700, color }}>{val}</div>
     </div>
@@ -361,34 +377,34 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus
   const deadline  = (() => { const d = new Date(p.startDate + "T00:00:00"); d.setDate(d.getDate() + cfg.totalDays); return fmtD(d.toISOString().split("T")[0]); })();
 
   return (
-    <div style={{ maxWidth: 680 }}>
+    <div style={{ maxWidth: 700 }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 26, gap: 16, flexWrap: "wrap" }}>
         <div>
-          <button onClick={onClose} style={{ background: "#1e2d42", border: "none", color: "#94a3b8", padding: "4px 10px", borderRadius: 6, fontSize: 12, cursor: "pointer", marginBottom: 10 }}>← Back</button>
-          <div style={{ fontSize: 22, fontWeight: 800, marginBottom: 4 }}>{p.clientName}</div>
-          <div style={{ display: "inline-block", fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: cfg.color + "22", color: cfg.color, marginBottom: 6 }}>{cfg.label}</div>
+          <button className="wt-btn-ghost" onClick={onClose} style={{ background: "#1e2d42", border: "none", color: "#94a3b8", padding: "5px 12px", borderRadius: 7, fontSize: 12, cursor: "pointer", marginBottom: 12 }}>← Back</button>
+          <div style={{ fontSize: 23, fontWeight: 800, marginBottom: 6 }}>{p.clientName}</div>
+          <div style={{ display: "inline-block", fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: 20, background: cfg.color + "22", color: cfg.color, marginBottom: 8 }}>{typeLabel(p)}</div>
           <div style={{ color: "#64748b", fontSize: 13 }}>Started {fmtD(p.startDate)} · Est. delivery {deadline}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 26, fontWeight: 800, color: "#e2e8f0" }}>{fmt(p.price)}</div>
+          <div style={{ fontSize: 27, fontWeight: 800, color: "#e2e8f0" }}>{fmt(p.price)}</div>
           <div style={{ fontSize: 13, color: "#10b981", fontWeight: 600 }}>{fmt(collected)} collected</div>
         </div>
       </div>
 
       {/* Status + Delete */}
-      <div style={{ background: "#0f1623", borderRadius: 10, padding: 14, marginBottom: 20, border: "1px solid #1e2d42", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ background: "#0f1623", borderRadius: 12, padding: 16, marginBottom: 22, border: "1px solid #1e2d42", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <span style={{ fontSize: 13, color: "#64748b", marginRight: 4 }}>Status:</span>
         {[["active","🔄 Active","#3b82f6"],["on_hold","⏸ On Hold","#f59e0b"],["completed","✅ Completed","#10b981"]].map(([s, l, c]) => (
-          <button key={s} onClick={() => onSetStatus(s)} style={{
-            padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+          <button key={s} className="wt-pill" onClick={() => onSetStatus(s)} style={{
+            padding: "6px 13px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
             background: p.status === s ? c + "33" : "#141e2e",
             color:      p.status === s ? c        : "#64748b",
             outline:    p.status === s ? `1px solid ${c}44` : "none",
           }}>{l}</button>
         ))}
         <div style={{ marginLeft: "auto" }}>
-          <button onClick={onDelete} style={{ background: "#ef444422", color: "#f87171", border: "none", padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🗑 Delete</button>
+          <button className="wt-btn-danger" onClick={onDelete} style={{ background: "#ef444422", color: "#f87171", border: "none", padding: "6px 13px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer" }}>🗑 Delete</button>
         </div>
       </div>
 
@@ -416,11 +432,11 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus
           </div>
         </div>
         {p.phases.map((ph, i) => (
-          <div key={i} onClick={() => onTogglePhase(i)} style={{
-            display: "flex", alignItems: "center", gap: 12, padding: "10px 14px",
+          <div key={i} className="wt-phase-row" onClick={() => onTogglePhase(i)} style={{
+            display: "flex", alignItems: "center", gap: 12, padding: "12px 15px",
             background:  ph.completed ? "#0f2918" : "#141e2e",
             border:      `1px solid ${ph.completed ? "#10b98133" : "#1e2d42"}`,
-            borderRadius: 8, cursor: "pointer", marginBottom: 8, transition: "all 0.15s", userSelect: "none",
+            borderRadius: 9, cursor: "pointer", marginBottom: 9, transition: "all 0.15s", userSelect: "none",
           }}>
             <div style={{
               width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
@@ -440,11 +456,11 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus
       {/* Payment Milestones */}
       <Section title="Payment Milestones" icon="💳">
         {p.payments.map((pm) => (
-          <div key={pm.key} style={{
-            display: "flex", alignItems: "center", gap: 12, padding: "12px 16px",
+          <div key={pm.key} className="wt-pay-row" style={{
+            display: "flex", alignItems: "center", gap: 14, padding: "13px 17px",
             background:   pm.paid ? "#064e3b22" : "#141e2e",
             border:       `1px solid ${pm.paid ? "#10b98144" : "#1e2d42"}`,
-            borderRadius: 10, transition: "all 0.2s", marginBottom: 8,
+            borderRadius: 11, transition: "all 0.2s", marginBottom: 9,
           }}>
             <div style={{ fontSize: 24 }}>{pm.icon}</div>
             <div style={{ flex: 1 }}>
@@ -454,15 +470,15 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus
             <div style={{ textAlign: "right", marginRight: 8 }}>
               <div style={{ fontSize: 20, fontWeight: 800, color: pm.paid ? "#10b981" : "#e2e8f0" }}>{fmt(pm.amount)}</div>
             </div>
-            <button onClick={() => onTogglePayment(pm.key)} style={{
-              padding: "6px 14px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
+            <button className="wt-pill" onClick={() => onTogglePayment(pm.key)} style={{
+              padding: "7px 15px", borderRadius: 8, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap",
               background: pm.paid ? "#064e3b" : "#6366f122",
               color:      pm.paid ? "#10b981" : "#818cf8",
               outline:    pm.paid ? "1px solid #10b98144" : "1px solid #6366f133",
             }}>{pm.paid ? "✓ Paid" : "Mark Paid"}</button>
           </div>
         ))}
-        <div style={{ marginTop: 4, background: "#141e2e", borderRadius: 8, padding: "10px 14px", display: "flex", gap: 16, border: "1px solid #1e2d42" }}>
+        <div style={{ marginTop: 6, background: "#141e2e", borderRadius: 9, padding: "12px 16px", display: "flex", gap: 18, border: "1px solid #1e2d42" }}>
           {[["Total Value", fmt(p.price), "#e2e8f0"],["Collected", fmt(collected), "#10b981"],["Remaining", fmt(p.price - collected), "#f59e0b"]].map(([l, v, c]) => (
             <div key={l} style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: "#64748b" }}>{l}</div>
@@ -479,15 +495,15 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus
           onChange={e => { setNotes(e.target.value); setNotesChanged(e.target.value !== (p.notes || "")); }}
           placeholder="Client details, domain, hosting info, login credentials, special requirements…"
           style={{
-            width: "100%", minHeight: 100, background: "#141e2e", border: "1px solid #1e2d42",
-            borderRadius: 8, padding: 12, color: "#e2e8f0", fontSize: 13, resize: "vertical",
-            fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.6, outline: "none",
+            width: "100%", minHeight: 110, background: "#141e2e", border: "1px solid #1e2d42",
+            borderRadius: 9, padding: 13, color: "#e2e8f0", fontSize: 13, resize: "vertical",
+            fontFamily: "inherit", boxSizing: "border-box", lineHeight: 1.6,
           }}
         />
         {notesChanged && (
-          <button onClick={() => { onSaveNotes(notes); setNotesChanged(false); }} style={{
-            marginTop: 8, background: "#6366f1", color: "#fff", border: "none",
-            borderRadius: 6, padding: "7px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer",
+          <button className="wt-btn-primary" onClick={() => { onSaveNotes(notes); setNotesChanged(false); }} style={{
+            marginTop: 10, background: "#6366f1", color: "#fff", border: "none",
+            borderRadius: 8, padding: "8px 18px", fontWeight: 600, fontSize: 13, cursor: "pointer",
           }}>Save Notes</button>
         )}
       </Section>
@@ -499,12 +515,12 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onSetStatus
 
 function Section({ title, icon, children }) {
   return (
-    <div style={{ marginBottom: 20, background: "#0f1623", borderRadius: 12, border: "1px solid #1e2d42", overflow: "hidden" }}>
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid #1e2d42", display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ marginBottom: 22, background: "#0f1623", borderRadius: 13, border: "1px solid #1e2d42", overflow: "hidden" }}>
+      <div style={{ padding: "14px 18px", borderBottom: "1px solid #1e2d42", display: "flex", alignItems: "center", gap: 9 }}>
         <span>{icon}</span>
         <span style={{ fontWeight: 700, fontSize: 14 }}>{title}</span>
       </div>
-      <div style={{ padding: 16 }}>{children}</div>
+      <div style={{ padding: 18 }}>{children}</div>
     </div>
   );
 }
@@ -513,13 +529,13 @@ function Section({ title, icon, children }) {
 
 function Modal({ title, onClose, children }) {
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#000000bb", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
-      <div style={{ background: "#0f1623", border: "1px solid #1e2d42", borderRadius: 16, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 60px #00000080" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #1e2d42" }}>
+    <div className="wt-backdrop" style={{ position: "fixed", inset: 0, background: "#000000bb", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
+      <div className="wt-modal-card" style={{ background: "#0f1623", border: "1px solid #1e2d42", borderRadius: 18, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 60px #00000080" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid #1e2d42" }}>
           <span style={{ fontWeight: 700, fontSize: 16 }}>{title}</span>
-          <button onClick={onClose} style={{ background: "#1e2d42", border: "none", color: "#94a3b8", width: 28, height: 28, borderRadius: 6, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
+          <button className="wt-btn-ghost" onClick={onClose} style={{ background: "#1e2d42", border: "none", color: "#94a3b8", width: 30, height: 30, borderRadius: 7, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
         </div>
-        <div style={{ padding: 20 }}>{children}</div>
+        <div style={{ padding: 24 }}>{children}</div>
       </div>
     </div>
   );
@@ -530,15 +546,16 @@ function Modal({ title, onClose, children }) {
 function AddForm({ form, setForm, onSave, onCancel }) {
   const cfg      = PROJECT_CONFIGS[form.type];
   const payments = MILESTONE_DEFS.map(m => ({ ...m, amount: Math.round(form.price * m.pct / 100) }));
+  const canSave  = form.clientName.trim() && (form.type !== "custom" || form.customLabel.trim());
 
   const inp = {
-    width: "100%", background: "#141e2e", border: "1px solid #1e2d42", borderRadius: 8,
-    padding: "9px 12px", color: "#e2e8f0", fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box",
+    width: "100%", background: "#141e2e", border: "1px solid #1e2d42", borderRadius: 9,
+    padding: "10px 13px", color: "#e2e8f0", fontSize: 14, fontFamily: "inherit", boxSizing: "border-box",
   };
-  const lbl = { fontSize: 12, color: "#64748b", marginBottom: 5, display: "block", fontWeight: 500 };
+  const lbl = { fontSize: 12, color: "#64748b", marginBottom: 6, display: "block", fontWeight: 500 };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div>
         <label style={lbl}>Client Name *</label>
         <input value={form.clientName} onChange={e => setForm({ ...form, clientName: e.target.value })} placeholder="e.g. Rajesh Traders, ABC Boutique" style={inp} autoFocus />
@@ -553,7 +570,14 @@ function AddForm({ form, setForm, onSave, onCancel }) {
         </select>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      {form.type === "custom" && (
+        <div>
+          <label style={lbl}>Custom Type Name *</label>
+          <input value={form.customLabel} onChange={e => setForm({ ...form, customLabel: e.target.value })} placeholder="e.g. Landing Page, Mobile App, SEO Package" style={inp} />
+        </div>
+      )}
+
+      <div className="wt-addform-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div>
           <label style={lbl}>Project Price (₹)</label>
           <input type="number" value={form.price} onChange={e => setForm({ ...form, price: e.target.value })} style={inp} />
@@ -565,11 +589,11 @@ function AddForm({ form, setForm, onSave, onCancel }) {
       </div>
 
       {/* Preview */}
-      <div style={{ background: "#141e2e", borderRadius: 10, padding: 12, border: "1px solid #1e2d42" }}>
-        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.5px" }}>📋 Payment Breakdown</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+      <div style={{ background: "#141e2e", borderRadius: 11, padding: 14, border: "1px solid #1e2d42" }}>
+        <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>📋 Payment Breakdown</div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
           {payments.map(m => (
-            <div key={m.key} style={{ flex: 1, background: "#0f1623", borderRadius: 6, padding: "8px", textAlign: "center" }}>
+            <div key={m.key} style={{ flex: 1, background: "#0f1623", borderRadius: 8, padding: "9px", textAlign: "center" }}>
               <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>{m.icon} {m.label}</div>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#818cf8" }}>{fmt(m.amount)}</div>
               <div style={{ fontSize: 10, color: "#475569" }}>{m.pct}%</div>
@@ -587,11 +611,11 @@ function AddForm({ form, setForm, onSave, onCancel }) {
         <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Domain, hosting info, client contact…" style={{ ...inp, minHeight: 60, resize: "vertical", lineHeight: 1.5 }} />
       </div>
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={onCancel} style={{ flex: 1, background: "#141e2e", color: "#94a3b8", border: "1px solid #1e2d42", borderRadius: 8, padding: 10, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
-        <button onClick={onSave} disabled={!form.clientName.trim()} style={{
-          flex: 2, background: form.clientName.trim() ? "#6366f1" : "#1e1e3f", color: form.clientName.trim() ? "#fff" : "#4a4a7a",
-          border: "none", borderRadius: 8, padding: 10, fontWeight: 700, fontSize: 14, cursor: form.clientName.trim() ? "pointer" : "not-allowed",
+      <div style={{ display: "flex", gap: 10 }}>
+        <button className="wt-btn-ghost" onClick={onCancel} style={{ flex: 1, background: "#141e2e", color: "#94a3b8", border: "1px solid #1e2d42", borderRadius: 9, padding: 11, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</button>
+        <button className={canSave ? "wt-btn-primary" : ""} onClick={onSave} disabled={!canSave} style={{
+          flex: 2, background: canSave ? "#6366f1" : "#1e1e3f", color: canSave ? "#fff" : "#4a4a7a",
+          border: "none", borderRadius: 9, padding: 11, fontWeight: 700, fontSize: 14, cursor: canSave ? "pointer" : "not-allowed",
         }}>Add Project →</button>
       </div>
     </div>

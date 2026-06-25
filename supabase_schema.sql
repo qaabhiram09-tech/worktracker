@@ -16,6 +16,7 @@ create table public.projects (
   id          uuid primary key default gen_random_uuid(),
   client_name text not null,
   type        text not null,
+  custom_label text,
   price       numeric(12,2) not null,
   start_date  date not null,
   notes       text not null default '',
