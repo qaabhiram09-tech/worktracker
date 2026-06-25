@@ -1,39 +1,22 @@
 import { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
+import ProjectTypesModal from "./ProjectTypesModal";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-
-const PROJECT_CONFIGS = {
-  cms:           { label: "CMS",                             price: 5000,  color: "#6366f1", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
-  adv_cms_6000:  { label: "Advanced CMS ₹6000 (<10 pages)", price: 6000,  color: "#8b5cf6", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
-  adv_cms_6500:  { label: "Advanced CMS ₹6500 (15 pages)",  price: 6500,  color: "#a855f7", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
-  adv_cms_7000:  { label: "Advanced CMS ₹7000 (15+ pages)", price: 7000,  color: "#c026d3", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
-  woocommerce:   { label: "WooCommerce (Guest Checkout)",    price: 10000, color: "#7c3aed", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
-  shopify:       { label: "Shopify",                         price: 10000, color: "#0891b2", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
-  adv_ecommerce: { label: "Advanced Ecommerce (User Accts)", price: 12000, color: "#0284c7", totalDays: 8, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:3},{name:"Bug Fix & Live",days:1}] },
-  html:          { label: "HTML Website",                    price: 5000,  color: "#059669", totalDays: 4, phases: [{name:"Design",days:1},{name:"Corrections",days:1},{name:"Development",days:1},{name:"Bug Fix & Live",days:1}] },
-  custom:        { label: "Custom Project Type",              price: 5000,  color: "#ec4899", totalDays: 7, phases: [{name:"Design",days:2},{name:"Corrections",days:2},{name:"Development",days:2},{name:"Bug Fix & Live",days:1}] },
-};
-
-const typeLabel = (p) => (p.type === "custom" && p.customLabel) ? p.customLabel : PROJECT_CONFIGS[p.type]?.label;
-
-const MILESTONE_DEFS = [
-  { key: "advance", label: "Advance",      pct: 20, icon: "🔑" },
-  { key: "design",  label: "After Design", pct: 20, icon: "🎨" },
-  { key: "live",    label: "After Live",   pct: 60, icon: "🚀" },
-];
 
 const PHASE_COLORS = ["#6366f1", "#f59e0b", "#10b981", "#3b82f6"];
 
 const fmt  = (n) => `₹${Number(n).toLocaleString("en-IN")}`;
 const tod  = () => new Date().toISOString().split("T")[0];
 const fmtD = (d) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
+const totalDays = (p) => p.phases.reduce((s, ph) => s + ph.days, 0);
 
 const rowToProject = (row) => ({
   id:         row.id,
   clientName: row.client_name,
-  type:       row.type,
-  customLabel: row.custom_label || "",
+  typeId:     row.project_type_id,
+  typeLabel:  row.project_types?.label || row.custom_label || row.type || "Unknown",
+  typeColor:  row.project_types?.color || "#6366f1",
   price:      Number(row.price),
   startDate:  row.start_date,
   notes:      row.notes || "",
@@ -47,17 +30,28 @@ const rowToProject = (row) => ({
   })),
 });
 
+const rowToProjectType = (row) => ({
+  id:    row.id,
+  label: row.label,
+  price: Number(row.price),
+  color: row.color,
+  phases: (row.project_type_phases || []).sort((a, b) => a.position - b.position).map(ph => ({ name: ph.name, days: ph.days })),
+  milestones: (row.project_type_milestones || []).sort((a, b) => a.position - b.position).map(m => ({ label: m.label, icon: m.icon, pct: Number(m.pct) })),
+});
+
 // ─── Tracker ──────────────────────────────────────────────────────────────────
 
 export default function Tracker({ userId, userEmail, onSignOut }) {
   const [projects, setProjects] = useState([]);
+  const [projectTypes, setProjectTypes] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [selected, setSelected] = useState(null);
   const [tab,      setTab]      = useState("all");
   const [showAdd,  setShowAdd]  = useState(false);
+  const [showTypes, setShowTypes] = useState(false);
   const [kpiModal, setKpiModal] = useState(null); // null | "collected" | "pending"
   const [search,   setSearch]   = useState("");
-  const [form, setForm] = useState({ clientName: "", type: "cms", customLabel: "", price: 5000, startDate: tod(), notes: "" });
+  const [form, setForm] = useState({ clientName: "", typeId: "", price: 0, startDate: tod(), notes: "" });
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
 
   useEffect(() => {
@@ -66,23 +60,46 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  const loadProjects = async () => {
+    const { data, error } = await supabase
+      .from("projects")
+      .select("*, project_phases(*), project_payments(*), project_types(label, color)")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+    if (error) { console.error(error); return; }
+    setProjects(data.map(rowToProject));
+  };
+
+  const loadProjectTypes = async () => {
+    const { data, error } = await supabase
+      .from("project_types")
+      .select("*, project_type_phases(*), project_type_milestones(*)")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: true });
+    if (error) { console.error(error); return; }
+    const types = data.map(rowToProjectType);
+    setProjectTypes(types);
+    return types;
+  };
+
   useEffect(() => {
     (async () => {
-      const { data, error } = await supabase
-        .from("projects")
-        .select("*, project_phases(*), project_payments(*)")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
-      if (error) { console.error(error); setLoading(false); return; }
-      setProjects(data.map(rowToProject));
+      await Promise.all([loadProjects(), loadProjectTypes()]);
       setLoading(false);
     })();
   }, [userId]);
 
+  useEffect(() => {
+    if (!form.typeId && projectTypes.length > 0) {
+      setForm(f => ({ ...f, typeId: projectTypes[0].id, price: projectTypes[0].price }));
+    }
+  }, [projectTypes]);
+
   // ── Actions ──
 
   const addProject = async () => {
-    const cfg = PROJECT_CONFIGS[form.type];
+    const ptype = projectTypes.find(t => t.id === form.typeId);
+    if (!ptype) return;
     const price = Number(form.price);
 
     const { data: proj, error } = await supabase
@@ -90,19 +107,18 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
       .insert({
         user_id: userId,
         client_name: form.clientName.trim() || "Unnamed Client",
-        type: form.type,
-        custom_label: form.type === "custom" ? (form.customLabel.trim() || "Custom Project") : null,
+        project_type_id: ptype.id,
         price,
         start_date: form.startDate,
         notes: form.notes,
         status: "active",
       })
-      .select()
+      .select("*, project_types(label, color)")
       .single();
     if (error) { alert("Failed to create project: " + error.message); return; }
 
-    const phaseRows   = cfg.phases.map((ph, i) => ({ project_id: proj.id, position: i, name: ph.name, days: ph.days, completed: false, completed_date: null }));
-    const paymentRows = MILESTONE_DEFS.map(m => ({ project_id: proj.id, key: m.key, label: m.label, icon: m.icon, pct: m.pct, amount: Math.round(price * m.pct / 100), paid: false, paid_date: null }));
+    const phaseRows   = ptype.phases.map((ph, i) => ({ project_id: proj.id, position: i, name: ph.name, days: ph.days, completed: false, completed_date: null }));
+    const paymentRows = ptype.milestones.map((m, i) => ({ project_id: proj.id, key: `m${i}`, label: m.label, icon: m.icon, pct: m.pct, amount: Math.round(price * m.pct / 100), paid: false, paid_date: null }));
 
     const [{ data: phases, error: phErr }, { data: payments, error: pmErr }] = await Promise.all([
       supabase.from("project_phases").insert(phaseRows).select(),
@@ -114,7 +130,44 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
     setProjects(prev => [p, ...prev]);
     setShowAdd(false);
     setSelected(p.id);
-    setForm({ clientName: "", type: "cms", customLabel: "", price: 5000, startDate: tod(), notes: "" });
+    setForm({ clientName: "", typeId: ptype.id, price: ptype.price, startDate: tod(), notes: "" });
+  };
+
+  const saveProjectType = async (typeId, draft) => {
+    let id = typeId;
+    if (id) {
+      const { error } = await supabase.from("project_types").update({ label: draft.label, price: draft.price, color: draft.color }).eq("id", id);
+      if (error) { alert("Failed to save: " + error.message); return false; }
+      await Promise.all([
+        supabase.from("project_type_phases").delete().eq("project_type_id", id),
+        supabase.from("project_type_milestones").delete().eq("project_type_id", id),
+      ]);
+    } else {
+      const { data, error } = await supabase.from("project_types").insert({ user_id: userId, label: draft.label, price: draft.price, color: draft.color }).select().single();
+      if (error) { alert("Failed to create: " + error.message); return false; }
+      id = data.id;
+    }
+
+    const phaseRows     = draft.phases.map((ph, i) => ({ project_type_id: id, position: i, name: ph.name, days: ph.days }));
+    const milestoneRows = draft.milestones.map((m, i) => ({ project_type_id: id, position: i, label: m.label, icon: m.icon, pct: m.pct }));
+    const [{ error: phErr }, { error: mErr }] = await Promise.all([
+      supabase.from("project_type_phases").insert(phaseRows),
+      supabase.from("project_type_milestones").insert(milestoneRows),
+    ]);
+    if (phErr || mErr) alert("Type saved, but phases/milestones failed to save.");
+
+    await loadProjectTypes();
+    return true;
+  };
+
+  const deleteProjectType = async (typeId) => {
+    const { error } = await supabase.from("project_types").delete().eq("id", typeId);
+    if (error) {
+      if (error.code === "23503") alert("Can't delete — one or more projects still use this type.");
+      else alert("Failed to delete: " + error.message);
+      return;
+    }
+    await loadProjectTypes();
   };
 
   const togglePhase = async (projId, idx) => {
@@ -222,7 +275,7 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
   const sel      = projects.find(p => p.id === selected) || null;
   const filtered = projects.filter(p =>
     (tab === "all" || p.status === tab) &&
-    (search === "" || p.clientName.toLowerCase().includes(search.toLowerCase()) || typeLabel(p).toLowerCase().includes(search.toLowerCase()))
+    (search === "" || p.clientName.toLowerCase().includes(search.toLowerCase()) || p.typeLabel.toLowerCase().includes(search.toLowerCase()))
   );
 
   const totalCollected = projects.reduce((s, p) => s + p.payments.filter(pm => pm.paid).reduce((ss, pm) => ss + pm.amount, 0), 0);
@@ -261,6 +314,9 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
             placeholder="Search projects…"
             style={{ background: "#141e2e", border: "1px solid #1e2d42", borderRadius: 9, padding: "8px 13px", color: "#e2e8f0", fontSize: 13, width: 200 }}
           />
+          <button className="wt-btn-ghost" onClick={() => setShowTypes(true)} style={{ background: "#1e2d42", color: "#cbd5e1", border: "none", borderRadius: 9, padding: "9px 14px", fontWeight: 600, fontSize: 13, cursor: "pointer", whiteSpace: "nowrap" }}>
+            ⚙<span className="wt-hide-mobile"> Types</span>
+          </button>
           <button className="wt-btn-primary" onClick={() => setShowAdd(true)} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 9, padding: "9px 18px", fontWeight: 600, fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
             ＋ New<span className="wt-hide-mobile"> Project</span>
           </button>
@@ -361,7 +417,11 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
       {/* ── Add Modal ── */}
       {showAdd && (
         <Modal onClose={() => setShowAdd(false)} title="New Project">
-          <AddForm form={form} setForm={setForm} onSave={addProject} onCancel={() => setShowAdd(false)} />
+          <AddForm
+            form={form} setForm={setForm} onSave={addProject} onCancel={() => setShowAdd(false)}
+            projectTypes={projectTypes}
+            onManageTypes={() => { setShowAdd(false); setShowTypes(true); }}
+          />
         </Modal>
       )}
 
@@ -374,6 +434,16 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
           onSelectProject={(id) => { setSelected(id); setKpiModal(null); }}
         />
       )}
+
+      {/* ── Project Types Modal ── */}
+      {showTypes && (
+        <ProjectTypesModal
+          types={projectTypes}
+          onClose={() => setShowTypes(false)}
+          onSave={saveProjectType}
+          onDelete={deleteProjectType}
+        />
+      )}
     </div>
   );
 }
@@ -381,7 +451,6 @@ export default function Tracker({ userId, userEmail, onSignOut }) {
 // ─── Project Card ─────────────────────────────────────────────────────────────
 
 function ProjectCard({ project: p, selected, onClick }) {
-  const cfg            = PROJECT_CONFIGS[p.type];
   const completedCount = p.phases.filter(ph => ph.completed).length;
   const phasePct       = Math.round((completedCount / p.phases.length) * 100);
   const collected      = p.payments.filter(pm => pm.paid).reduce((s, pm) => s + pm.amount, 0);
@@ -398,14 +467,14 @@ function ProjectCard({ project: p, selected, onClick }) {
       borderTop:     `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
       borderRight:   `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
       borderBottom:  `1px solid ${selected ? "#6366f1" : "#1e2d42"}`,
-      borderLeft:    `4px solid ${selected ? "#6366f1" : cfg.color}`,
+      borderLeft:    `4px solid ${selected ? "#6366f1" : p.typeColor}`,
       borderRadius:  14, padding: 18, cursor: "pointer",
       boxShadow:     selected ? "0 0 0 2px #6366f133" : "0 1px 0 #00000030",
     }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 10 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>{p.clientName}</div>
-          <div style={{ display: "inline-block", fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: cfg.color + "22", color: cfg.color }}>{typeLabel(p)}</div>
+          <div style={{ display: "inline-block", fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: p.typeColor + "22", color: p.typeColor }}>{p.typeLabel}</div>
         </div>
         <span style={{ fontSize: 11, fontWeight: 600, padding: "4px 9px", borderRadius: 6, background: statusCfg.bg, color: statusCfg.text, whiteSpace: "nowrap" }}>{statusCfg.label}</span>
       </div>
@@ -433,7 +502,7 @@ function ProjectCard({ project: p, selected, onClick }) {
       <div style={{ display: "flex", gap: 8 }}>
         <Stat label="Collected" val={fmt(collected)} color="#10b981" bg="#06403022" />
         <Stat label="Pending"   val={fmt(pending)}   color="#f59e0b" bg="#451a0322" />
-        <Stat label="Timeline"  val={`${cfg.totalDays}d`} color="#818cf8" bg="#1e1a4222" />
+        <Stat label="Timeline"  val={`${totalDays(p)}d`} color="#818cf8" bg="#1e1a4222" />
       </div>
     </div>
   );
@@ -466,10 +535,9 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onUpdatePay
     setEditingKey(null);
   };
 
-  const cfg       = PROJECT_CONFIGS[p.type];
   const collected = p.payments.filter(pm => pm.paid).reduce((s, pm) => s + pm.amount, 0);
   const phasePct  = Math.round((p.phases.filter(ph => ph.completed).length / p.phases.length) * 100);
-  const deadline  = (() => { const d = new Date(p.startDate + "T00:00:00"); d.setDate(d.getDate() + cfg.totalDays); return fmtD(d.toISOString().split("T")[0]); })();
+  const deadline  = (() => { const d = new Date(p.startDate + "T00:00:00"); d.setDate(d.getDate() + totalDays(p)); return fmtD(d.toISOString().split("T")[0]); })();
 
   return (
     <div style={{ maxWidth: 700 }}>
@@ -478,7 +546,7 @@ function ProjectDetail({ project: p, onTogglePhase, onTogglePayment, onUpdatePay
         <div>
           <button className="wt-btn-ghost" onClick={onClose} style={{ background: "#1e2d42", border: "none", color: "#94a3b8", padding: "5px 12px", borderRadius: 7, fontSize: 12, cursor: "pointer", marginBottom: 12 }}>← Back</button>
           <div style={{ fontSize: 23, fontWeight: 800, marginBottom: 6 }}>{p.clientName}</div>
-          <div style={{ display: "inline-block", fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: 20, background: cfg.color + "22", color: cfg.color, marginBottom: 8 }}>{typeLabel(p)}</div>
+          <div style={{ display: "inline-block", fontSize: 12, fontWeight: 600, padding: "4px 11px", borderRadius: 20, background: p.typeColor + "22", color: p.typeColor, marginBottom: 8 }}>{p.typeLabel}</div>
           <div style={{ color: "#64748b", fontSize: 13 }}>Started {fmtD(p.startDate)} · Est. delivery {deadline}</div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -644,7 +712,7 @@ function Section({ title, icon, children }) {
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-function Modal({ title, onClose, children, maxWidth = 480 }) {
+export function Modal({ title, onClose, children, maxWidth = 480 }) {
   return (
     <div className="wt-backdrop" style={{ position: "fixed", inset: 0, background: "#000000bb", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
       <div className="wt-modal-card" style={{ background: "#0f1623", border: "1px solid #1e2d42", borderRadius: 18, width: "100%", maxWidth, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 60px #00000080" }}>
@@ -667,7 +735,7 @@ function PaymentKpiModal({ mode, projects, onClose, onSelectProject }) {
     .map(p => ({
       id: p.id,
       clientName: p.clientName,
-      type: typeLabel(p),
+      type: p.typeLabel,
       collected: p.payments.filter(pm => pm.paid).reduce((s, pm) => s + pm.amount, 0),
       pending: p.payments.filter(pm => !pm.paid).reduce((s, pm) => s + pm.amount, 0),
     }))
@@ -721,16 +789,29 @@ function PaymentKpiModal({ mode, projects, onClose, onSelectProject }) {
 
 // ─── Add Form ─────────────────────────────────────────────────────────────────
 
-function AddForm({ form, setForm, onSave, onCancel }) {
-  const cfg      = PROJECT_CONFIGS[form.type];
-  const payments = MILESTONE_DEFS.map(m => ({ ...m, amount: Math.round(form.price * m.pct / 100) }));
-  const canSave  = form.clientName.trim() && (form.type !== "custom" || form.customLabel.trim());
-
+function AddForm({ form, setForm, onSave, onCancel, projectTypes, onManageTypes }) {
   const inp = {
     width: "100%", background: "#141e2e", border: "1px solid #1e2d42", borderRadius: 9,
     padding: "10px 13px", color: "#e2e8f0", fontSize: 14, fontFamily: "inherit", boxSizing: "border-box",
   };
   const lbl = { fontSize: 12, color: "#64748b", marginBottom: 6, display: "block", fontWeight: 500 };
+
+  if (projectTypes.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "20px 0" }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 6 }}>No project types yet</div>
+        <div style={{ fontSize: 13, color: "#64748b", marginBottom: 18 }}>Create a project type first — it defines the build phases and payment split new projects start with.</div>
+        <button className="wt-btn-primary" onClick={onManageTypes} style={{ background: "#6366f1", color: "#fff", border: "none", borderRadius: 9, padding: "10px 20px", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+          ⚙ Manage Project Types
+        </button>
+      </div>
+    );
+  }
+
+  const ptype    = projectTypes.find(t => t.id === form.typeId) || projectTypes[0];
+  const payments = ptype.milestones.map(m => ({ ...m, amount: Math.round(form.price * m.pct / 100) }));
+  const canSave  = form.clientName.trim() && form.typeId;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -741,19 +822,15 @@ function AddForm({ form, setForm, onSave, onCancel }) {
 
       <div>
         <label style={lbl}>Project Type</label>
-        <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value, price: PROJECT_CONFIGS[e.target.value].price })} style={{ ...inp, cursor: "pointer" }}>
-          {Object.entries(PROJECT_CONFIGS).map(([k, v]) => (
-            <option key={k} value={k}>{v.label} — {fmt(v.price)}</option>
+        <select value={form.typeId} onChange={e => {
+          const t = projectTypes.find(pt => pt.id === e.target.value);
+          setForm({ ...form, typeId: e.target.value, price: t.price });
+        }} style={{ ...inp, cursor: "pointer" }}>
+          {projectTypes.map(t => (
+            <option key={t.id} value={t.id}>{t.label} — {fmt(t.price)}</option>
           ))}
         </select>
       </div>
-
-      {form.type === "custom" && (
-        <div>
-          <label style={lbl}>Custom Type Name *</label>
-          <input value={form.customLabel} onChange={e => setForm({ ...form, customLabel: e.target.value })} placeholder="e.g. Landing Page, Mobile App, SEO Package" style={inp} />
-        </div>
-      )}
 
       <div className="wt-addform-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div>
@@ -769,9 +846,9 @@ function AddForm({ form, setForm, onSave, onCancel }) {
       {/* Preview */}
       <div style={{ background: "#141e2e", borderRadius: 11, padding: 14, border: "1px solid #1e2d42" }}>
         <div style={{ fontSize: 11, color: "#64748b", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.5px" }}>📋 Payment Breakdown</div>
-        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-          {payments.map(m => (
-            <div key={m.key} style={{ flex: 1, background: "#0f1623", borderRadius: 8, padding: "9px", textAlign: "center" }}>
+        <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          {payments.map((m, i) => (
+            <div key={i} style={{ flex: 1, minWidth: 80, background: "#0f1623", borderRadius: 8, padding: "9px", textAlign: "center" }}>
               <div style={{ fontSize: 10, color: "#64748b", marginBottom: 2 }}>{m.icon} {m.label}</div>
               <div style={{ fontSize: 15, fontWeight: 700, color: "#818cf8" }}>{fmt(m.amount)}</div>
               <div style={{ fontSize: 10, color: "#475569" }}>{m.pct}%</div>
@@ -779,8 +856,8 @@ function AddForm({ form, setForm, onSave, onCancel }) {
           ))}
         </div>
         <div style={{ display: "flex", gap: 16, fontSize: 12, color: "#64748b" }}>
-          <span>⏱ {cfg.totalDays} working days total</span>
-          <span>📐 {cfg.phases.length} phases</span>
+          <span>⏱ {ptype.phases.reduce((s, ph) => s + ph.days, 0)} working days total</span>
+          <span>📐 {ptype.phases.length} phases</span>
         </div>
       </div>
 
