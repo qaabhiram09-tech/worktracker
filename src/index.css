@@ -39,6 +39,8 @@ button:focus-visible {
 .wt-btn-danger:hover { background: #7f1d1d44 !important; }
 
 .wt-phase-row:hover, .wt-pay-row:hover { border-color: #334155 !important; }
+.wt-table-row { transition: background-color .12s ease; }
+.wt-table-row:hover { background-color: #141e2e; }
 
 /* ── Modal motion ── */
 .wt-backdrop { animation: wt-fade-in .15s ease; backdrop-filter: blur(3px); }

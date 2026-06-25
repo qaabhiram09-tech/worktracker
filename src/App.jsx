@@ -55,6 +55,7 @@ export default function App() {
   const [selected, setSelected] = useState(null);
   const [tab,      setTab]      = useState("all");
   const [showAdd,  setShowAdd]  = useState(false);
+  const [kpiModal, setKpiModal] = useState(null); // null | "collected" | "pending"
   const [search,   setSearch]   = useState("");
   const [form, setForm] = useState({ clientName: "", type: "cms", customLabel: "", price: 5000, startDate: tod(), notes: "" });
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
@@ -267,18 +268,30 @@ export default function App() {
       {/* ── Stats Bar ── */}
       <div className="wt-stats" style={{ background: "#0f1623", borderBottom: "1px solid #1e2d42", padding: "16px 28px", display: "flex", gap: 10, overflowX: "auto" }}>
         {[
-          { label: "Total Projects", val: projects.length,    icon: "📁", color: "#6366f1" },
-          { label: "Active",         val: activeCount,        icon: "🔄", color: "#3b82f6" },
-          { label: "Completed",      val: completedCount,     icon: "✅", color: "#10b981" },
-          { label: "On Hold",        val: holdCount,          icon: "⏸", color: "#f59e0b" },
-          { label: "Collected",      val: fmt(totalCollected),icon: "💰", color: "#10b981" },
-          { label: "Pending",        val: fmt(totalPending),  icon: "⏳", color: "#f59e0b" },
-        ].map(s => (
-          <div key={s.label} className="wt-stat-item" style={{ flex: "1 1 140px", minWidth: 110, background: "#141e2e", borderRadius: 12, padding: "12px 16px", border: "1px solid #1e2d42" }}>
-            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.icon} {s.label}</div>
-            <div style={{ fontSize: 19, fontWeight: 700, color: s.color }}>{s.val}</div>
-          </div>
-        ))}
+          { id: "total",     label: "Total Projects", val: projects.length,    icon: "📁", color: "#6366f1" },
+          { id: "active",    label: "Active",         val: activeCount,        icon: "🔄", color: "#3b82f6" },
+          { id: "completed", label: "Completed",      val: completedCount,     icon: "✅", color: "#10b981" },
+          { id: "on_hold",   label: "On Hold",        val: holdCount,          icon: "⏸", color: "#f59e0b" },
+          { id: "collected", label: "Collected",      val: fmt(totalCollected),icon: "💰", color: "#10b981" },
+          { id: "pending",   label: "Pending",        val: fmt(totalPending),  icon: "⏳", color: "#f59e0b" },
+        ].map(s => {
+          const clickable = s.id === "collected" || s.id === "pending";
+          return (
+            <div
+              key={s.id}
+              className="wt-stat-item"
+              onClick={() => clickable && setKpiModal(s.id)}
+              title={clickable ? "Click to view breakdown by project" : undefined}
+              style={{ flex: "1 1 140px", minWidth: 110, background: "#141e2e", borderRadius: 12, padding: "12px 16px", border: "1px solid #1e2d42", cursor: clickable ? "pointer" : "default" }}
+            >
+              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 5, textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.icon} {s.label}</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                <div style={{ fontSize: 19, fontWeight: 700, color: s.color }}>{s.val}</div>
+                {clickable && <span style={{ fontSize: 11, color: "#475569" }}>↗</span>}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* ── Main Layout ── */}
@@ -346,6 +359,16 @@ export default function App() {
         <Modal onClose={() => setShowAdd(false)} title="New Project">
           <AddForm form={form} setForm={setForm} onSave={addProject} onCancel={() => setShowAdd(false)} />
         </Modal>
+      )}
+
+      {/* ── Payment KPI Breakdown Modal ── */}
+      {kpiModal && (
+        <PaymentKpiModal
+          mode={kpiModal}
+          projects={projects}
+          onClose={() => setKpiModal(null)}
+          onSelectProject={(id) => { setSelected(id); setKpiModal(null); }}
+        />
       )}
     </div>
   );
@@ -617,10 +640,10 @@ function Section({ title, icon, children }) {
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 
-function Modal({ title, onClose, children }) {
+function Modal({ title, onClose, children, maxWidth = 480 }) {
   return (
     <div className="wt-backdrop" style={{ position: "fixed", inset: 0, background: "#000000bb", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}>
-      <div className="wt-modal-card" style={{ background: "#0f1623", border: "1px solid #1e2d42", borderRadius: 18, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 60px #00000080" }}>
+      <div className="wt-modal-card" style={{ background: "#0f1623", border: "1px solid #1e2d42", borderRadius: 18, width: "100%", maxWidth, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 25px 60px #00000080" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 24px", borderBottom: "1px solid #1e2d42" }}>
           <span style={{ fontWeight: 700, fontSize: 16 }}>{title}</span>
           <button className="wt-btn-ghost" onClick={onClose} style={{ background: "#1e2d42", border: "none", color: "#94a3b8", width: 30, height: 30, borderRadius: 7, cursor: "pointer", fontSize: 18, lineHeight: 1 }}>×</button>
@@ -628,6 +651,67 @@ function Modal({ title, onClose, children }) {
         <div style={{ padding: 24 }}>{children}</div>
       </div>
     </div>
+  );
+}
+
+// ─── Payment KPI Breakdown Modal ───────────────────────────────────────────────
+
+function PaymentKpiModal({ mode, projects, onClose, onSelectProject }) {
+  const isCollected = mode === "collected";
+
+  const rows = projects
+    .map(p => ({
+      id: p.id,
+      clientName: p.clientName,
+      type: typeLabel(p),
+      collected: p.payments.filter(pm => pm.paid).reduce((s, pm) => s + pm.amount, 0),
+      pending: p.payments.filter(pm => !pm.paid).reduce((s, pm) => s + pm.amount, 0),
+    }))
+    .filter(r => isCollected ? r.collected > 0 : r.pending > 0)
+    .sort((a, b) => isCollected ? b.collected - a.collected : b.pending - a.pending);
+
+  const totalCollected = rows.reduce((s, r) => s + r.collected, 0);
+  const totalPending   = rows.reduce((s, r) => s + r.pending, 0);
+
+  return (
+    <Modal title={isCollected ? "💰 Payments Collected" : "⏳ Payments Pending"} onClose={onClose} maxWidth={560}>
+      {rows.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "30px 0", color: "#64748b", fontSize: 13 }}>
+          No {isCollected ? "collected" : "pending"} payments yet.
+        </div>
+      ) : (
+        <div style={{ maxHeight: 440, overflowY: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ textAlign: "left", color: "#64748b", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                <th style={{ padding: "0 0 10px" }}>Project</th>
+                <th style={{ padding: "0 0 10px", textAlign: "right" }}>Collected</th>
+                <th style={{ padding: "0 0 10px", textAlign: "right" }}>Pending</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.id} className="wt-table-row" onClick={() => onSelectProject(r.id)} style={{ cursor: "pointer" }}>
+                  <td style={{ padding: "11px 0", borderTop: "1px solid #1e2d42" }}>
+                    <div style={{ fontWeight: 600 }}>{r.clientName}</div>
+                    <div style={{ fontSize: 11, color: "#64748b" }}>{r.type}</div>
+                  </td>
+                  <td style={{ padding: "11px 0", borderTop: "1px solid #1e2d42", textAlign: "right", fontWeight: 700, color: r.collected > 0 ? "#10b981" : "#475569" }}>{fmt(r.collected)}</td>
+                  <td style={{ padding: "11px 0", borderTop: "1px solid #1e2d42", textAlign: "right", fontWeight: 700, color: r.pending > 0 ? "#f59e0b" : "#475569" }}>{fmt(r.pending)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td style={{ padding: "14px 0 0", borderTop: "2px solid #1e2d42", fontWeight: 700 }}>Total</td>
+                <td style={{ padding: "14px 0 0", borderTop: "2px solid #1e2d42", textAlign: "right", fontWeight: 800, fontSize: 15, color: "#10b981" }}>{fmt(totalCollected)}</td>
+                <td style={{ padding: "14px 0 0", borderTop: "2px solid #1e2d42", textAlign: "right", fontWeight: 800, fontSize: 15, color: "#f59e0b" }}>{fmt(totalPending)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
 
