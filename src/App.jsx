@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./supabaseClient";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -20,20 +21,33 @@ const MILESTONE_DEFS = [
 ];
 
 const PHASE_COLORS = ["#6366f1", "#f59e0b", "#10b981", "#3b82f6"];
-const STORAGE_KEY  = "worktracker_projects_v2";
 
-const uid  = () => Date.now().toString(36) + Math.random().toString(36).substr(2);
 const fmt  = (n) => `₹${Number(n).toLocaleString("en-IN")}`;
 const tod  = () => new Date().toISOString().split("T")[0];
 const fmtD = (d) => d ? new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—";
 
+const rowToProject = (row) => ({
+  id:         row.id,
+  clientName: row.client_name,
+  type:       row.type,
+  price:      Number(row.price),
+  startDate:  row.start_date,
+  notes:      row.notes || "",
+  status:     row.status,
+  createdAt:  new Date(row.created_at).getTime(),
+  phases: (row.project_phases || [])
+    .sort((a, b) => a.position - b.position)
+    .map(ph => ({ id: ph.id, name: ph.name, days: ph.days, completed: ph.completed, completedDate: ph.completed_date })),
+  payments: (row.project_payments || []).map(pm => ({
+    id: pm.id, key: pm.key, label: pm.label, icon: pm.icon, pct: Number(pm.pct), amount: Number(pm.amount), paid: pm.paid, paidDate: pm.paid_date,
+  })),
+});
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [projects, setProjects] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
-    catch { return []; }
-  });
+  const [projects, setProjects] = useState([]);
+  const [loading,  setLoading]  = useState(true);
   const [selected, setSelected] = useState(null);
   const [tab,      setTab]      = useState("all");
   const [showAdd,  setShowAdd]  = useState(false);
@@ -41,63 +55,106 @@ export default function App() {
   const [form, setForm] = useState({ clientName: "", type: "cms", price: 5000, startDate: tod(), notes: "" });
 
   useEffect(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(projects)); }
-    catch {}
-  }, [projects]);
+    (async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*, project_phases(*), project_payments(*)")
+        .order("created_at", { ascending: false });
+      if (error) { console.error(error); setLoading(false); return; }
+      setProjects(data.map(rowToProject));
+      setLoading(false);
+    })();
+  }, []);
 
   // ── Actions ──
 
-  const addProject = () => {
+  const addProject = async () => {
     const cfg = PROJECT_CONFIGS[form.type];
-    const p = {
-      id: uid(),
-      clientName: form.clientName.trim() || "Unnamed Client",
-      type: form.type,
-      price: Number(form.price),
-      startDate: form.startDate,
-      notes: form.notes,
-      status: "active",
-      createdAt: Date.now(),
-      phases:   cfg.phases.map(ph => ({ ...ph, completed: false, completedDate: null })),
-      payments: MILESTONE_DEFS.map(m => ({ ...m, amount: Math.round(form.price * m.pct / 100), paid: false, paidDate: null })),
-    };
-    const updated = [p, ...projects];
-    setProjects(updated);
+    const price = Number(form.price);
+
+    const { data: proj, error } = await supabase
+      .from("projects")
+      .insert({
+        client_name: form.clientName.trim() || "Unnamed Client",
+        type: form.type,
+        price,
+        start_date: form.startDate,
+        notes: form.notes,
+        status: "active",
+      })
+      .select()
+      .single();
+    if (error) { alert("Failed to create project: " + error.message); return; }
+
+    const phaseRows   = cfg.phases.map((ph, i) => ({ project_id: proj.id, position: i, name: ph.name, days: ph.days, completed: false, completed_date: null }));
+    const paymentRows = MILESTONE_DEFS.map(m => ({ project_id: proj.id, key: m.key, label: m.label, icon: m.icon, pct: m.pct, amount: Math.round(price * m.pct / 100), paid: false, paid_date: null }));
+
+    const [{ data: phases, error: phErr }, { data: payments, error: pmErr }] = await Promise.all([
+      supabase.from("project_phases").insert(phaseRows).select(),
+      supabase.from("project_payments").insert(paymentRows).select(),
+    ]);
+    if (phErr || pmErr) alert("Project created, but phases/payments failed to save.");
+
+    const p = rowToProject({ ...proj, project_phases: phases || [], project_payments: payments || [] });
+    setProjects(prev => [p, ...prev]);
     setShowAdd(false);
     setSelected(p.id);
     setForm({ clientName: "", type: "cms", price: 5000, startDate: tod(), notes: "" });
   };
 
-  const togglePhase = (projId, idx) =>
-    setProjects(projects.map(p => {
-      if (p.id !== projId) return p;
-      const phases = p.phases.map((ph, i) =>
-        i === idx ? { ...ph, completed: !ph.completed, completedDate: !ph.completed ? tod() : null } : ph
-      );
-      const allDone = phases.every(ph => ph.completed);
-      return { ...p, phases, status: allDone ? "completed" : p.status === "completed" ? "active" : p.status };
-    }));
+  const togglePhase = async (projId, idx) => {
+    const proj = projects.find(p => p.id === projId);
+    const ph = proj.phases[idx];
+    const completed = !ph.completed;
+    const completedDate = completed ? tod() : null;
 
-  const togglePayment = (projId, key) =>
+    const phases = proj.phases.map((x, i) => i === idx ? { ...x, completed, completedDate } : x);
+    const allDone = phases.every(x => x.completed);
+    const newStatus = allDone ? "completed" : proj.status === "completed" ? "active" : proj.status;
+
+    const updates = [supabase.from("project_phases").update({ completed, completed_date: completedDate }).eq("id", ph.id)];
+    if (newStatus !== proj.status) updates.push(supabase.from("projects").update({ status: newStatus }).eq("id", projId));
+    const results = await Promise.all(updates);
+    if (results.some(r => r.error)) { alert("Failed to update phase."); return; }
+
+    setProjects(projects.map(p => p.id === projId ? { ...p, phases, status: newStatus } : p));
+  };
+
+  const togglePayment = async (projId, key) => {
+    const proj = projects.find(p => p.id === projId);
+    const pm = proj.payments.find(x => x.key === key);
+    const paid = !pm.paid;
+    const paidDate = paid ? tod() : null;
+
+    const { error } = await supabase.from("project_payments").update({ paid, paid_date: paidDate }).eq("id", pm.id);
+    if (error) { alert("Failed to update payment: " + error.message); return; }
+
     setProjects(projects.map(p => {
       if (p.id !== projId) return p;
-      const payments = p.payments.map(pm =>
-        pm.key === key ? { ...pm, paid: !pm.paid, paidDate: !pm.paid ? tod() : null } : pm
-      );
+      const payments = p.payments.map(x => x.key === key ? { ...x, paid, paidDate } : x);
       return { ...p, payments };
     }));
+  };
 
-  const setStatus = (projId, status) =>
+  const setStatus = async (projId, status) => {
+    const { error } = await supabase.from("projects").update({ status }).eq("id", projId);
+    if (error) { alert("Failed to update status: " + error.message); return; }
     setProjects(projects.map(p => p.id === projId ? { ...p, status } : p));
+  };
 
-  const deleteProject = (projId) => {
+  const deleteProject = async (projId) => {
     if (!window.confirm("Delete this project permanently?")) return;
+    const { error } = await supabase.from("projects").delete().eq("id", projId);
+    if (error) { alert("Failed to delete: " + error.message); return; }
     setProjects(projects.filter(p => p.id !== projId));
     setSelected(null);
   };
 
-  const saveNotes = (projId, notes) =>
+  const saveNotes = async (projId, notes) => {
+    const { error } = await supabase.from("projects").update({ notes }).eq("id", projId);
+    if (error) { alert("Failed to save notes: " + error.message); return; }
     setProjects(projects.map(p => p.id === projId ? { ...p, notes } : p));
+  };
 
   // ── Derived ──
 
@@ -114,6 +171,14 @@ export default function App() {
   const holdCount      = projects.filter(p => p.status === "on_hold").length;
 
   // ── Render ──
+
+  if (loading) {
+    return (
+      <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: "#080d17", minHeight: "100vh", color: "#64748b", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>
+        Loading projects…
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: "'Inter',system-ui,sans-serif", background: "#080d17", minHeight: "100vh", color: "#f1f5f9" }}>
