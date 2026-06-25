@@ -224,6 +224,8 @@ export default function App() {
 
   const totalCollected = projects.reduce((s, p) => s + p.payments.filter(pm => pm.paid).reduce((ss, pm) => ss + pm.amount, 0), 0);
   const totalPending   = projects.reduce((s, p) => s + p.payments.filter(pm => !pm.paid).reduce((ss, pm) => ss + pm.amount, 0), 0);
+  const filteredCollected = filtered.reduce((s, p) => s + p.payments.filter(pm => pm.paid).reduce((ss, pm) => ss + pm.amount, 0), 0);
+  const filteredPending   = filtered.reduce((s, p) => s + p.payments.filter(pm => !pm.paid).reduce((ss, pm) => ss + pm.amount, 0), 0);
   const activeCount    = projects.filter(p => p.status === "active").length;
   const completedCount = projects.filter(p => p.status === "completed").length;
   const holdCount      = projects.filter(p => p.status === "on_hold").length;
@@ -297,6 +299,14 @@ export default function App() {
                 </button>
               ))}
             </div>
+
+            {/* Filtered summary (received / pending for the active tab) */}
+            {tab !== "all" && (
+              <div style={{ display: "flex", gap: 18, padding: "10px 18px", background: "#0f1623", borderBottom: "1px solid #1e2d42", fontSize: 12 }}>
+                <span style={{ color: "#64748b" }}>💰 Received <strong style={{ color: "#10b981", marginLeft: 4 }}>{fmt(filteredCollected)}</strong></span>
+                <span style={{ color: "#64748b" }}>⏳ Pending <strong style={{ color: "#f59e0b", marginLeft: 4 }}>{fmt(filteredPending)}</strong></span>
+              </div>
+            )}
 
             {/* Cards */}
             <div className="wt-list-cards" style={{ flex: 1, overflowY: "auto", padding: sel && !isMobile ? "14px" : "20px", display: "grid", gridTemplateColumns: sel && !isMobile ? "1fr" : "repeat(auto-fill,minmax(280px,1fr))", gap: 14, alignContent: "start" }}>
